@@ -29,6 +29,17 @@
       <button type="button" class="lang-btn active" data-lang="fr">🇫🇷</button>
       <button type="button" class="lang-btn" data-lang="en">🇬🇧</button>
     </div>
+    <div class="auth-widget" id="auth-widget">
+      <button type="button" class="btn-connect" id="connect-btn">Se connecter</button>
+      <div class="user-info" id="user-info" hidden>
+        <span class="user-avatar" id="user-avatar">
+          <img id="user-avatar-img" alt="" style="display:none">
+          <span id="user-avatar-initial">?</span>
+        </span>
+        <span class="user-name" id="user-name"></span>
+        <button type="button" class="user-logout" id="logout-btn" aria-label="Déconnexion">✕</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -103,7 +114,9 @@
   </div>
 </div>
 
-<script src="script.js"></script>
+<script defer src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script defer src="js/deblock-auth.js"></script>
+<script defer src="script.js"></script>
   <!-- 100% privacy-first analytics -->
 <script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 <script data-goatcounter="https://deblock-studios.goatcounter.com/count"async src="//gc.zgo.at/count.js"></script>

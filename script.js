@@ -47,7 +47,28 @@
       'tuto-button': '📖 Tutoriel',
       'survey-text': "Nous aimerions connaitre votre avis sur MultiDB. Nous avons créé un sondage : il ne dure pas plus d'une minute à remplir ! Un grand merci à ceux qui le feront, vous aidez le développement de MultiDB.",
       'survey-btn': '🤝 Donner mon avis',
-      'survey-skip': 'Plus tard'
+      'survey-skip': 'Plus tard',
+      'connect': 'Se connecter',
+      'logout': 'Déconnexion',
+      'reviews-title': '⭐ Avis de la communauté',
+      'reviews-loading': 'Chargement des avis…',
+      'reviews-empty': 'Aucun avis pour l\'instant. Soyez le premier !',
+      'reviews-no-rating': 'Aucun avis',
+      'reviews-sort-recent': 'Plus récents',
+      'reviews-sort-desc': 'Note ↓',
+      'reviews-sort-asc': 'Note ↑',
+      'reviews-rating-label': 'Votre note',
+      'reviews-form-as': 'Laisser un avis en tant que',
+      'reviews-placeholder': 'Votre commentaire (optionnel)',
+      'reviews-publish': 'Publier',
+      'reviews-login-prompt': 'Connectez-vous pour laisser un avis.',
+      'reviews-login-btn': 'Se connecter',
+      'reviews-success': '✓ Avis publié — merci !',
+      'reviews-already': 'Vous avez déjà laissé un avis pour ce mod.',
+      'reviews-error': 'Erreur : ',
+      'reviews-verified': 'Vérifié',
+      'reviews-count-singular': 'avis',
+      'reviews-count-plural': 'avis'
     },
     en: {
       'hero-title-start': 'Mods',
@@ -89,7 +110,28 @@
       'tuto-button': '📖 Tutorial',
       'survey-text': 'We would love to know your opinion on MultiDB. We created a survey: it takes no more than a minute to fill out! Many thanks to those who will do it, you help develop MultiDB.',
       'survey-btn': '🤝 Give my opinion',
-      'survey-skip': 'Later'
+      'survey-skip': 'Later',
+      'connect': 'Sign in',
+      'logout': 'Log out',
+      'reviews-title': '⭐ Community Reviews',
+      'reviews-loading': 'Loading reviews…',
+      'reviews-empty': 'No reviews yet. Be the first!',
+      'reviews-no-rating': 'No reviews',
+      'reviews-sort-recent': 'Most recent',
+      'reviews-sort-desc': 'Rating ↓',
+      'reviews-sort-asc': 'Rating ↑',
+      'reviews-rating-label': 'Your rating',
+      'reviews-form-as': 'Leave a review as',
+      'reviews-placeholder': 'Your comment (optional)',
+      'reviews-publish': 'Publish',
+      'reviews-login-prompt': 'Log in to leave a review.',
+      'reviews-login-btn': 'Log in',
+      'reviews-success': '✓ Review published — thanks!',
+      'reviews-already': 'You have already left a review for this mod.',
+      'reviews-error': 'Error: ',
+      'reviews-verified': 'Verified',
+      'reviews-count-singular': 'review',
+      'reviews-count-plural': 'reviews'
     }
   };
 
@@ -99,6 +141,9 @@
   var currentFilter = 'all';
   var currentSort = 'downloads-desc';
   var downloadCounts = {};
+
+  // ========== ÉTAT DES AVIS / COMPTE ==========
+  var reviewsCache = null; // null = pas encore chargé, {} = chargé (vide ou non)
 
   var modsListEl = document.getElementById('mods-list');
   var modsCountEl = document.getElementById('mods-count');
@@ -162,6 +207,10 @@
     }
     document.getElementById('back-btn').textContent = t('back-button');
     document.getElementById('footer-text').textContent = t('footer-text');
+    var connectBtn = document.getElementById('connect-btn');
+    if (connectBtn) connectBtn.textContent = t('connect');
+    var logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) logoutBtn.setAttribute('aria-label', t('logout'));
     document.getElementById('post-mod-btn').textContent = t('post-mod-button');
     document.getElementById('post-mod-title').textContent = t('post-mod-title');
     document.getElementById('post-mod-text').innerHTML = t('post-mod-text');
@@ -339,11 +388,14 @@
           '<span class="mod-card-excerpt">' +
           escapeHtml(excerpt(desc, 140)) +
           '</span>' +
+          '<span class="mod-card-stats">' +
           '<span class="mod-card-downloads">' +
           downloadIcon() +
           '<span class="dl-count">' +
           formatCount(getDownloadCount(mod)) +
           '</span>' +
+          '</span>' +
+          ratingBadgeHtml(mod) +
           '</span>' +
           '</span>' +
           '</button>'
@@ -414,7 +466,375 @@
       '" data-file="' +
       escapeHtml(mod.name) +
       '">' + t('download-button') + '</a>' +
-      '</div>';
+      '</div>' +
+      '<div id="mod-reviews-section" class="mod-reviews-section"></div>';
+
+    renderReviewsSection(mod);
+  }
+
+  // ========== SYSTÈME D'AVIS ==========
+
+  function getReviews(modId) {
+    if (!reviewsCache) return [];
+    return reviewsCache[modId] || [];
+  }
+
+  function getAverageFromList(list) {
+    if (!list || !list.length) return null;
+    var sum = 0;
+    list.forEach(function (r) { sum += r.rating; });
+    return sum / list.length;
+  }
+
+  function getAverageRating(modId) {
+    return getAverageFromList(getReviews(modId));
+  }
+
+  function ratingBadgeHtml(mod) {
+    var avg = getAverageRating(mod.id);
+    if (avg == null) return '';
+    return (
+      '<span class="mod-card-rating" title="' + t('reviews-title') + '">★ ' +
+      avg.toFixed(1) +
+      '</span>'
+    );
+  }
+
+  function loadAllReviews() {
+    if (typeof Deblock === 'undefined' || !Deblock.getSupabaseUrl) return;
+    var url = Deblock.getSupabaseUrl() + '/rest/v1/mod_reviews?select=*&order=created_at.desc&limit=10000';
+    fetch(url, { headers: Deblock.getApiHeaders() })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (rows) {
+        var map = {};
+        (rows || []).forEach(function (r) {
+          if (!r || !r.mod_id) return;
+          if (!map[r.mod_id]) map[r.mod_id] = [];
+          map[r.mod_id].push(r);
+        });
+        reviewsCache = map;
+        refreshCounters();
+      })
+      .catch(function () {
+        if (reviewsCache === null) reviewsCache = {};
+      });
+  }
+
+  function starsHtml(rating) {
+    var html = '';
+    for (var i = 1; i <= 5; i++) {
+      html += '<span class="review-star' + (i <= rating ? ' filled' : '') + '">★</span>';
+    }
+    return html;
+  }
+
+  function formatReviewDate(dateStr) {
+    try {
+      var d = new Date(dateStr);
+      var locale = currentLang === 'fr' ? 'fr-FR' : 'en-US';
+      return d.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return dateStr; }
+  }
+
+  function sortReviews(list, mode) {
+    var sorted = list.slice();
+    if (mode === 'desc') {
+      sorted.sort(function (a, b) { return b.rating - a.rating; });
+    } else if (mode === 'asc') {
+      sorted.sort(function (a, b) { return a.rating - b.rating; });
+    } else {
+      sorted.sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+    }
+    return sorted;
+  }
+
+  function reviewsAvgHtml(reviews) {
+    if (!reviews || !reviews.length) {
+      return '<span class="reviews-avg reviews-avg-none">' + t('reviews-no-rating') + '</span>';
+    }
+    var avg = getAverageFromList(reviews);
+    var count = reviews.length;
+    var countLabel = count === 1 ? t('reviews-count-singular') : t('reviews-count-plural');
+    return (
+      '<span class="reviews-avg">★ ' + avg.toFixed(1) +
+      ' <span class="reviews-count">(' + count + ' ' + countLabel + ')</span></span>'
+    );
+  }
+
+  function buildReviewCard(r) {
+    var verified = r.user_id ? '<span class="review-verified">✓ ' + t('reviews-verified') + '</span>' : '';
+    var dateStr = r.created_at ? formatReviewDate(r.created_at) : '';
+    return (
+      '<div class="review-card">' +
+      '<div class="review-card-head">' +
+      '<span class="review-stars">' + starsHtml(r.rating) + '</span>' +
+      '<span class="review-pseudo">' + escapeHtml(r.pseudo || 'Anonyme') + '</span>' +
+      verified +
+      '<span class="review-date">' + escapeHtml(dateStr) + '</span>' +
+      '</div>' +
+      (r.text ? '<p class="review-text">' + escapeHtml(r.text) + '</p>' : '') +
+      '</div>'
+    );
+  }
+
+  function buildReviewsListHtml(list) {
+    if (!list || !list.length) {
+      return '<p class="reviews-empty">' + t('reviews-empty') + '</p>';
+    }
+    return list.map(buildReviewCard).join('');
+  }
+
+  function buildReviewFormHtml(currentUser, alreadyReviewed) {
+    if (!currentUser) {
+      return (
+        '<div class="review-prompt">' +
+        '<span>' + t('reviews-login-prompt') + '</span>' +
+        '<button type="button" class="btn btn-ghost review-login-btn">' + t('reviews-login-btn') + '</button>' +
+        '</div>'
+      );
+    }
+    if (alreadyReviewed) {
+      return '<p class="review-already">' + t('reviews-already') + '</p>';
+    }
+    var stars = '';
+    for (var i = 1; i <= 5; i++) {
+      stars += '<button type="button" class="star-pick" data-val="' + i + '">★</button>';
+    }
+    return (
+      '<div class="review-form" id="review-form">' +
+      '<p class="review-form-as">' + t('reviews-form-as') +
+      ' <strong>' + escapeHtml(Deblock.getDisplayName()) + '</strong></p>' +
+      '<div class="review-star-picker" id="review-star-picker" data-selected="0">' +
+      '<span class="review-star-label">' + t('reviews-rating-label') + '</span>' +
+      stars +
+      '</div>' +
+      '<textarea id="review-text" class="review-textarea" maxlength="500" placeholder="' + t('reviews-placeholder') + '"></textarea>' +
+      '<div class="review-form-footer">' +
+      '<span class="review-char-count" id="review-char-count">0 / 500</span>' +
+      '<button type="button" id="review-submit" class="btn btn-primary">' + t('reviews-publish') + '</button>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderReviewsSection(mod) {
+    var container = document.getElementById('mod-reviews-section');
+    if (!container || !mod) return;
+
+    var reviews = getReviews(mod.id);
+    var currentUser = (typeof Deblock !== 'undefined') ? Deblock.getUser() : null;
+    var alreadyReviewed = currentUser && reviews.some(function (r) { return r.user_id === currentUser.id; });
+
+    var listHtml = reviewsCache === null
+      ? '<div class="loading-state"><div class="spinner"></div><span>' + t('reviews-loading') + '</span></div>'
+      : buildReviewsListHtml(sortReviews(reviews, 'recent'));
+
+    container.innerHTML =
+      '<div class="reviews-head">' +
+      '<h3 class="reviews-title">' + t('reviews-title') + '</h3>' +
+      '<div class="reviews-head-right">' +
+      reviewsAvgHtml(reviews) +
+      '<select id="reviews-sort" class="reviews-sort" aria-label="' + t('reviews-sort-recent') + '">' +
+      '<option value="recent">' + t('reviews-sort-recent') + '</option>' +
+      '<option value="desc">' + t('reviews-sort-desc') + '</option>' +
+      '<option value="asc">' + t('reviews-sort-asc') + '</option>' +
+      '</select>' +
+      '</div>' +
+      '</div>' +
+      buildReviewFormHtml(currentUser, alreadyReviewed) +
+      '<div id="reviews-list" class="reviews-list">' + listHtml + '</div>';
+
+    bindReviewsEvents(mod);
+  }
+
+  function bindStarPicker(picker) {
+    if (!picker) return;
+    var stars = picker.querySelectorAll('.star-pick');
+    function refresh(selected, hovered) {
+      stars.forEach(function (s) {
+        var v = parseInt(s.getAttribute('data-val'), 10);
+        s.classList.toggle('active', hovered ? v <= hovered : v <= selected);
+      });
+    }
+    stars.forEach(function (star) {
+      star.addEventListener('mouseenter', function () {
+        refresh(parseInt(picker.getAttribute('data-selected') || '0', 10), parseInt(star.getAttribute('data-val'), 10));
+      });
+      star.addEventListener('mouseleave', function () {
+        refresh(parseInt(picker.getAttribute('data-selected') || '0', 10), 0);
+      });
+      star.addEventListener('click', function () {
+        picker.setAttribute('data-selected', star.getAttribute('data-val'));
+        refresh(parseInt(star.getAttribute('data-val'), 10), 0);
+      });
+    });
+  }
+
+  function bindReviewsEvents(mod) {
+    var sortEl = document.getElementById('reviews-sort');
+    if (sortEl) {
+      sortEl.addEventListener('change', function () {
+        var listEl = document.getElementById('reviews-list');
+        if (listEl) listEl.innerHTML = buildReviewsListHtml(sortReviews(getReviews(mod.id), sortEl.value));
+      });
+    }
+
+    var loginBtn = document.querySelector('.review-login-btn');
+    if (loginBtn) {
+      loginBtn.addEventListener('click', function () {
+        if (typeof Deblock !== 'undefined' && Deblock.getLoginUrl) {
+          window.location.href = Deblock.getLoginUrl();
+        }
+      });
+    }
+
+    var picker = document.getElementById('review-star-picker');
+    if (picker) bindStarPicker(picker);
+
+    var textarea = document.getElementById('review-text');
+    var charCount = document.getElementById('review-char-count');
+    if (textarea && charCount) {
+      textarea.addEventListener('input', function () {
+        charCount.textContent = textarea.value.length + ' / 500';
+      });
+    }
+
+    var submitBtn = document.getElementById('review-submit');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function () {
+        var rating = picker ? parseInt(picker.getAttribute('data-selected') || '0', 10) : 0;
+        if (!rating) {
+          if (picker) {
+            picker.classList.add('shake');
+            setTimeout(function () { picker.classList.remove('shake'); }, 450);
+          }
+          return;
+        }
+        var text = textarea ? textarea.value.trim() : '';
+        submitBtn.disabled = true;
+        submitBtn.textContent = '…';
+        submitReview(mod.id, rating, text)
+          .then(function () { renderReviewsSection(mod); })
+          .catch(function (err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = t('reviews-publish');
+            var msg = err && err.message === 'already_reviewed' ? t('reviews-already') : t('reviews-error') + (err && err.message ? err.message : '');
+            var errEl = document.createElement('p');
+            errEl.className = 'review-error';
+            errEl.textContent = msg;
+            submitBtn.parentNode.appendChild(errEl);
+          });
+      });
+    }
+  }
+
+  function submitReview(modId, rating, text) {
+    var user = Deblock.getUser();
+    if (!user) return Promise.reject(new Error('not_logged_in'));
+
+    var payload = {
+      mod_id: modId,
+      user_id: user.id,
+      pseudo: (Deblock.getDisplayName() || 'Anonyme').slice(0, 32) || 'Anonyme',
+      rating: rating,
+      text: (text || '').slice(0, 500),
+    };
+
+    var url = Deblock.getSupabaseUrl() + '/rest/v1/mod_reviews';
+    return fetch(url, {
+      method: 'POST',
+      headers: Object.assign({}, Deblock.getApiHeaders(), { 'Prefer': 'return=representation' }),
+      body: JSON.stringify(payload),
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.json().catch(function () { return {}; }).then(function (errData) {
+          if (errData && errData.code === '23505') throw new Error('already_reviewed');
+          throw new Error(errData && errData.message ? errData.message : 'HTTP ' + res.status);
+        });
+      }
+      return res.json();
+    }).then(function (rows) {
+      if (!reviewsCache) reviewsCache = {};
+      if (!reviewsCache[modId]) reviewsCache[modId] = [];
+      var created = Array.isArray(rows) ? rows[0] : rows;
+      if (created) reviewsCache[modId].unshift(created);
+      refreshCounters();
+    });
+  }
+
+  // ========== COMPTE (DEBLOCK) ==========
+
+  function updateAuthUI() {
+    var connectBtn = document.getElementById('connect-btn');
+    var userInfo = document.getElementById('user-info');
+    if (!connectBtn) return;
+
+    var user = (typeof Deblock !== 'undefined') ? Deblock.getUser() : null;
+
+    if (user) {
+      connectBtn.hidden = true;
+      if (userInfo) {
+        userInfo.hidden = false;
+        var userName = document.getElementById('user-name');
+        if (userName) userName.textContent = Deblock.getDisplayName();
+        var initial = (Deblock.getDisplayName() || '?').charAt(0).toUpperCase();
+        var initialEl = document.getElementById('user-avatar-initial');
+        if (initialEl) initialEl.textContent = initial;
+        var avatarImg = document.getElementById('user-avatar-img');
+        var avatarUrl = Deblock.getAvatarUrl();
+        if (avatarImg && initialEl) {
+          if (avatarUrl) {
+            avatarImg.src = avatarUrl;
+            avatarImg.style.display = '';
+            initialEl.style.display = 'none';
+          } else {
+            avatarImg.style.display = 'none';
+            initialEl.style.display = '';
+          }
+        }
+      }
+    } else {
+      connectBtn.hidden = false;
+      if (userInfo) userInfo.hidden = true;
+    }
+  }
+
+  function initAuth() {
+    if (typeof window.Deblock === 'undefined') return;
+
+    var connectBtn = document.getElementById('connect-btn');
+    var logoutBtn = document.getElementById('logout-btn');
+
+    if (connectBtn) {
+      connectBtn.addEventListener('click', function () {
+        window.location.href = Deblock.getLoginUrl();
+      });
+    }
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function () {
+        Deblock.logout().catch(function () {});
+      });
+    }
+
+    Deblock.ready().then(function () {
+      updateAuthUI();
+      rerenderCurrentReviews();
+      Deblock.onAuthStateChanged(function () {
+        updateAuthUI();
+        rerenderCurrentReviews();
+      });
+    });
+  }
+
+  function rerenderCurrentReviews() {
+    var hash = window.location.hash || '';
+    var match = hash.match(/^#\/mod\/(.+)$/);
+    if (!match) return;
+    var mod = findMod(decodeURIComponent(match[1]));
+    if (mod) renderReviewsSection(mod);
   }
 
   // ========== ROUTAGE ==========
@@ -611,6 +1031,8 @@
   }
 
   loadDownloadCounts();
+  loadAllReviews();
+  initAuth();
 
   // ========== INITIALISATION ==========
 

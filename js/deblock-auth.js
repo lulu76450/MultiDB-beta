@@ -4,7 +4,7 @@
  * Supabase que MultiCraft-Info (le compte « Deblock »).
  *
  * La connexion se fait sur MultiCraft-Info : l'utilisateur est redirigé vers
- * https://multicraft-info.netlify.app/compte?redirect=<url>, se connecte
+ * https://multicraft-info-beta.pages.dev/compte?redirect=<url>, se connecte
  * là-bas, puis revient ici avec `access_token` / `refresh_token` dans l'URL.
  * Ces jetons sont repris via handleRedirectSession() et stockés localement.
  *
@@ -24,7 +24,7 @@
 
   var SUPABASE_URL = 'https://rdtvftclctwfqtpkbzlf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJkdHZmdGNsY3R3ZnF0cGtiemxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MTc0MjksImV4cCI6MjEwMDI5MzQyOX0.DIsdZkJaoziW2OI2hbDalDl0IQCGPF3QRcBhKT7GW7o';
-  var MULTICRAFT_INFO_URL = 'https://multicraft-info.netlify.app';
+  var MULTICRAFT_INFO_URL = 'https://multicraft-info-beta.pages.dev';
 
   var supabase = null;
   var currentUser = null;
